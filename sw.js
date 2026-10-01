@@ -1,41 +1,67 @@
-const CACHE='meu-treino-v3.0.0';
-const ASSETS=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
+const CACHE = 'meu-treino-firebase-v4-20261001';
 
-self.addEventListener('install',e=>
-  e.waitUntil(
+const SDK = ['app', 'auth', 'firestore'].map(
+  x => 'https://www.gstatic.com/firebasejs/12.19.0/firebase-' + x + '-compat.js'
+);
+
+const CORE = ['./', './index.html', ...SDK];
+
+self.addEventListener('install', event => {
+  event.waitUntil(
     caches.open(CACHE)
-      .then(c=>c.addAll(ASSETS))
-      .then(()=>self.skipWaiting())
-  )
-);
+      .then(cache => cache.addAll(CORE))
+      .then(() => self.skipWaiting())
+  );
+});
 
-self.addEventListener('activate',e=>
-  e.waitUntil(
+self.addEventListener('activate', event => {
+  event.waitUntil(
     caches.keys()
-      .then(keys=>Promise.all(
-        keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))
+      .then(keys => Promise.all(
+        keys
+          .filter(key => key.startsWith('meu-treino-') && key !== CACHE)
+          .map(key => caches.delete(key))
       ))
-      .then(()=>self.clients.claim())
-  )
-);
+      .then(() => self.clients.claim())
+  );
+});
 
-self.addEventListener('fetch',e=>{
-  if(e.request.method!=='GET') return;
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
 
-  const u=new URL(e.request.url);
-  if(u.origin!==self.location.origin) return;
+  const url = new URL(event.request.url);
 
-  e.respondWith(
-    caches.match(e.request)
-      .then(cached=>
-        cached ||
-        fetch(e.request)
-          .then(r=>{
-            const copy=r.clone();
-            caches.open(CACHE).then(c=>c.put(e.request,copy));
-            return r;
-          })
-          .catch(()=>caches.match('./index.html'))
-      )
+  if (
+    url.origin !== self.location.origin &&
+    !SDK.includes(url.href)
+  ) return;
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then(async response => {
+          if (response.ok) {
+            const cache = await caches.open(CACHE);
+            await cache.put('./index.html', response.clone());
+          }
+          return response;
+        })
+        .catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
+
+      return fetch(event.request).then(async response => {
+        if (response.ok) {
+          const cache = await caches.open(CACHE);
+          await cache.put(event.request, response.clone());
+        }
+        return response;
+      });
+    })
   );
 });
